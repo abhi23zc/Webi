@@ -1,0 +1,78 @@
+import { defaults, normalize, applyTheme, avatar } from './config.js'
+import { consumeEvents } from './stream.js'
+const $ = id => document.getElementById(id)
+const preview = new URLSearchParams(location.search).has('preview')
+let config = normalize(defaults), mode = preview ? 'design' : 'live', busy = false, controller, taskId = '', stopped = false
+let conversationId = '', history = [], userId = crypto.randomUUID()
+try { userId = localStorage.getItem('webi-visitor') || userId; localStorage.setItem('webi-visitor', userId); const saved = JSON.parse(localStorage.getItem('webi-conversation') || '{}'); if (Array.isArray(saved.messages)) { history = saved.messages.filter(m => ['user', 'assistant'].includes(m.role) && typeof m.text === 'string').slice(-100); conversationId = typeof saved.id === 'string' ? saved.id : '' } } catch {}
+function persist() { try { localStorage.setItem('webi-conversation', JSON.stringify({ id: conversationId, messages: history.slice(-100) })) } catch {} }
+function message(role, text) {
+  const row = document.createElement('div'); row.className = `message-row ${role}`
+  const label = document.createElement('div'); label.className = 'message-label'; label.textContent = role === 'user' ? 'You' : config.name
+  const bubble = document.createElement('div'); bubble.className = 'message-bubble'; bubble.textContent = text
+  row.append(label, bubble); $('messages').append(row)
+  $('messages').scrollTop = $('messages').scrollHeight
+  return bubble
+}
+function branding() {
+  applyTheme(document.documentElement, config); avatar($('avatar'), config)
+  document.title = config.name; document.querySelector('.chat').setAttribute('aria-label', config.name)
+  $('chat-name').textContent = config.name; $('tagline').textContent = config.tagline
+  $('messages').replaceChildren(); $('suggestions').replaceChildren()
+  message('assistant', config.welcome)
+  if (mode === 'design') { $('message').placeholder = 'Design preview · try Test Dify'; $('send').disabled = true; $('message').disabled = true; $('new-chat').disabled = true }
+  else { for (const item of history) message(item.role, item.text); $('message').placeholder = 'Type your message…'; $('message').disabled = false; $('send').disabled = busy; $('new-chat').disabled = busy }
+  for (const text of config.suggestions) { const button = document.createElement('button'); button.type = 'button'; button.className = 'suggestion'; button.textContent = `${text} ↗`; button.disabled = mode === 'design' || busy; button.addEventListener('click', () => { $('message').value = text; $('chat-form').requestSubmit() }); $('suggestions').append(button) }
+  $('suggestions').hidden = mode === 'live' && history.length > 0
+}
+let parentOrigin = ''
+try { if (document.referrer) parentOrigin = new URL(document.referrer).origin } catch {}
+window.addEventListener('message', event => {
+  if (event.source !== window.parent || !event.data || event.data.type !== 'webi-config') return
+  if (parentOrigin && event.origin !== parentOrigin) return
+  // Establish a parent only through the embedding window; never accept opaque origins.
+  if (!parentOrigin) { if (event.origin === 'null') return; parentOrigin = event.origin }
+  if (busy) return
+  config = normalize(event.data.config)
+  mode = preview && event.data.mode === 'design' ? 'design' : 'live'
+  $('error').hidden = true; branding()
+})
+if (window.parent !== window) window.parent.postMessage({ type: 'webi-ready' }, parentOrigin || '*')
+function setBusy(value) { busy = value; $('send').hidden = value; $('stop').hidden = !value; $('message').disabled = value; $('new-chat').disabled = value; for (const b of $('suggestions').children) b.disabled = value }
+function showError(text) { $('error').textContent = text; $('error').hidden = false }
+$('chat-form').addEventListener('submit', async event => {
+  event.preventDefault()
+  const query = $('message').value.trim()
+  if (!query || busy || mode === 'design') return
+  $('error').hidden = true; $('message').value = ''; $('suggestions').hidden = true
+  message('user', query); history.push({ role: 'user', text: query })
+  const bubble = message('assistant', ''); const answer = { role: 'assistant', text: '' }
+  history.push(answer); setBusy(true); stopped = false; taskId = ''; controller = new AbortController()
+  let ended = false
+  try {
+    const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, userId, conversationId }), signal: controller.signal })
+    if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not send your message.') }
+    if (!response.headers.get('content-type')?.includes('text/event-stream')) throw new Error('Dify returned an unexpected response.')
+    await consumeEvents(response.body, event => {
+      if (event.task_id) taskId = event.task_id
+      if (event.conversation_id) conversationId = event.conversation_id
+      if (event.event === 'error') throw new Error(event.message || 'Dify could not generate a reply.')
+      if (['message', 'agent_message'].includes(event.event)) answer.text += event.answer || ''
+      if (event.event === 'message_replace') answer.text = event.answer || ''
+      if (event.event === 'message_end') ended = true
+      bubble.textContent = answer.text
+      $('messages').scrollTop = $('messages').scrollHeight
+    })
+    if (!ended && !stopped) throw new Error('The reply was interrupted. Please try again.')
+  } catch (error) { if (!stopped) showError(error.message || 'Connection lost. Please try again.') }
+  finally { if (!answer.text) { bubble.closest('.message-row').remove(); history.pop() } persist(); setBusy(false); $('message').focus() }
+})
+$('message').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('chat-form').requestSubmit() } })
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && parentOrigin) window.parent.postMessage({ type: 'webi-close' }, parentOrigin) })
+$('stop').addEventListener('click', async () => {
+  const currentTask = taskId
+  stopped = true; controller?.abort()
+  if (currentTask) { try { const response = await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: currentTask, userId }) }); if (!response.ok) showError('Reply display stopped. Dify could not confirm cancellation.') } catch { showError('Reply display stopped. Dify could not confirm cancellation.') } }
+})
+$('new-chat').addEventListener('click', () => { if (busy) return; history = []; conversationId = ''; persist(); $('error').hidden = true; branding(); $('message').focus() })
+branding()

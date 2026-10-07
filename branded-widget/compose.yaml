@@ -1,0 +1,23 @@
+services:
+  branded-widget:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Reach the existing Dify API directly on its Docker network.
+      DIFY_API_URL: http://api:5001/api
+      PORT: '3100'
+    ports:
+      - '127.0.0.1:3100:3100'
+    networks:
+      - dify
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3100/api/status').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+networks:
+  dify:
+    external: true
+    name: ${DIFY_DOCKER_NETWORK:-docker_default}
