@@ -8,7 +8,7 @@ export const themes = {
   emerald: { label: 'Sage', description: 'Calm & natural', bg: '#f7fbf8', surface: '#eaf2ed', text: '#20392b', muted: '#5e7567', border: '#d8e6dc', accent: '#28734c', onAccent: '#ffffff' },
   sunset: { label: 'Terracotta', description: 'Warm & welcoming', bg: '#fffbf7', surface: '#faeee5', text: '#493026', muted: '#85685a', border: '#efddd0', accent: '#b54b2a', onAccent: '#ffffff' },
 }
-export const defaults = { name: 'Dineezy Assistant', tagline: 'Your guide to Dineezy.', welcome: 'Hi there 👋 I’m your Dineezy assistant.\nAsk me about features, pricing, or getting started.', logo: '', theme: 'light', position: 'right', radius: '24', launcher: 'Ask Dineezy', suggestions: ['What is Dineezy?', 'Tell me about pricing', 'How do I get started?'] }
+export const defaults = { name: 'Dineezy Assistant', tagline: 'Your guide to Dineezy.', welcome: 'Welcome to Dineezy. How can I help?\nAsk me about features, pricing, or getting started.', logo: '', theme: 'light', position: 'right', radius: '24', launcher: 'Ask Dineezy', suggestions: ['What is Dineezy?', 'Tell me about pricing', 'How do I get started?'] }
 export function safeLogo(value) {
   if (typeof value !== 'string' || value.length > 350000) return ''
   if (/^data:image\/(png|jpeg|webp);base64,[a-z\d+/=]+$/i.test(value)) return value

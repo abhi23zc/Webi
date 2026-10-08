@@ -22,8 +22,9 @@ function branding() {
   message('assistant', config.welcome)
   if (mode === 'design') { $('message').placeholder = 'Design preview · try Test Dify'; $('send').disabled = true; $('message').disabled = true; $('new-chat').disabled = true }
   else { for (const item of history) message(item.role, item.text); $('message').placeholder = 'Type your message…'; $('message').disabled = false; $('send').disabled = busy; $('new-chat').disabled = busy }
-  for (const text of config.suggestions) { const button = document.createElement('button'); button.type = 'button'; button.className = 'suggestion'; button.textContent = `${text} ↗`; button.disabled = mode === 'design' || busy; button.addEventListener('click', () => { $('message').value = text; $('chat-form').requestSubmit() }); $('suggestions').append(button) }
+  for (const text of config.suggestions) { const button = document.createElement('button'); button.type = 'button'; button.className = 'suggestion'; const label = document.createElement('span'); label.textContent = text; const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('fill', 'none'); icon.setAttribute('stroke', 'currentColor'); icon.setAttribute('stroke-width', '1.8'); icon.setAttribute('aria-hidden', 'true'); const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', 'M7 17 17 7M7 7h10v10'); icon.append(path); button.append(label, icon); button.disabled = mode === 'design' || busy; button.addEventListener('click', () => { $('message').value = text; $('chat-form').requestSubmit() }); $('suggestions').append(button) }
   $('suggestions').hidden = mode === 'live' && history.length > 0
+  resizeComposer()
 }
 let parentOrigin = ''
 try { if (document.referrer) parentOrigin = new URL(document.referrer).origin } catch {}
@@ -38,13 +39,13 @@ window.addEventListener('message', event => {
   $('error').hidden = true; branding()
 })
 if (window.parent !== window) window.parent.postMessage({ type: 'webi-ready' }, parentOrigin || '*')
-function setBusy(value) { busy = value; $('send').hidden = value; $('stop').hidden = !value; $('message').disabled = value; $('new-chat').disabled = value; for (const b of $('suggestions').children) b.disabled = value }
+function setBusy(value) { busy = value; $('send').hidden = value; $('stop').hidden = !value; $('message').disabled = value; $('new-chat').disabled = value; resizeComposer(); for (const b of $('suggestions').children) b.disabled = value }
 function showError(text) { $('error').textContent = text; $('error').hidden = false }
 $('chat-form').addEventListener('submit', async event => {
   event.preventDefault()
   const query = $('message').value.trim()
   if (!query || busy || mode === 'design') return
-  $('error').hidden = true; $('message').value = ''; $('suggestions').hidden = true
+  $('error').hidden = true; $('message').value = ''; resizeComposer(); $('suggestions').hidden = true
   message('user', query); history.push({ role: 'user', text: query })
   const bubble = message('assistant', ''); const answer = { role: 'assistant', text: '' }
   history.push(answer); setBusy(true); stopped = false; taskId = ''; controller = new AbortController()
@@ -60,8 +61,9 @@ $('chat-form').addEventListener('submit', async event => {
       if (['message', 'agent_message'].includes(event.event)) answer.text += event.answer || ''
       if (event.event === 'message_replace') answer.text = event.answer || ''
       if (event.event === 'message_end') ended = true
+      const followReply = $('messages').scrollHeight - $('messages').scrollTop - $('messages').clientHeight < 80
       bubble.textContent = answer.text
-      $('messages').scrollTop = $('messages').scrollHeight
+      if (followReply) $('messages').scrollTop = $('messages').scrollHeight
     })
     if (!ended && !stopped) throw new Error('The reply was interrupted. Please try again.')
   } catch (error) { if (!stopped) showError(error.message || 'Connection lost. Please try again.') }
@@ -76,3 +78,9 @@ $('stop').addEventListener('click', async () => {
 })
 $('new-chat').addEventListener('click', () => { if (busy) return; history = []; conversationId = ''; persist(); $('error').hidden = true; branding(); $('message').focus() })
 branding()
+
+function resizeComposer() { const input = $('message'); input.style.height = '44px'; input.style.height = `${Math.min(input.scrollHeight, 120)}px`; $('send').disabled = busy || mode === 'design' || !input.value.trim() }
+$('message').addEventListener('input', resizeComposer)
+$('close-chat').hidden = window.parent === window || preview
+$('close-chat').addEventListener('click', () => { if (parentOrigin) window.parent.postMessage({ type: 'webi-close' }, parentOrigin) })
+resizeComposer()
