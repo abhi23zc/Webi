@@ -35,12 +35,13 @@ window.addEventListener('message', event => {
   if (parentOrigin && event.origin !== parentOrigin) return
   // Establish a parent only through the embedding window; never accept opaque origins.
   if (!parentOrigin) { if (event.origin === 'null') return; parentOrigin = event.origin }
+  if (event.data.botId && event.data.botId !== botId) { showError('Chatbot selection changed. Reload the widget before chatting.'); $('message').disabled = true; $('send').disabled = true; return }
   if (busy) return
   config = normalize(event.data.config)
   mode = preview && event.data.mode === 'design' ? 'design' : 'live'
   $('error').hidden = true; branding()
 })
-if (window.parent !== window) window.parent.postMessage({ type: 'webi-ready' }, parentOrigin || '*')
+if (window.parent !== window) window.parent.postMessage({ type: 'webi-ready', botId }, parentOrigin || '*')
 function setBusy(value) { busy = value; $('send').hidden = value; $('stop').hidden = !value; $('message').disabled = value; $('new-chat').disabled = value; resizeComposer(); for (const b of $('suggestions').children) b.disabled = value }
 function showError(text) { $('error').textContent = text; $('error').hidden = false }
 $('chat-form').addEventListener('submit', async event => {
@@ -53,8 +54,9 @@ $('chat-form').addEventListener('submit', async event => {
   history.push(answer); setBusy(true); stopped = false; taskId = ''; controller = new AbortController()
   let ended = false
   try {
-    const response = await fetch(`/api/chat?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, userId, conversationId }), signal: controller.signal })
+    const response = await fetch(`/api/chat?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, userId, conversationId, botId }), signal: controller.signal })
     if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not send your message.') }
+    if (response.headers.get('X-Webi-Bot-ID') !== botId) throw new Error('Chatbot routing mismatch. Reload the widget and try again.')
     if (!response.headers.get('content-type')?.includes('text/event-stream')) throw new Error('Dify returned an unexpected response.')
     await consumeEvents(response.body, event => {
       if (event.task_id) taskId = event.task_id
@@ -76,7 +78,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape' && pa
 $('stop').addEventListener('click', async () => {
   const currentTask = taskId
   stopped = true; controller?.abort()
-  if (currentTask) { try { const response = await fetch(`/api/stop?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: currentTask, userId }) }); if (!response.ok) showError('Reply display stopped. Dify could not confirm cancellation.') } catch { showError('Reply display stopped. Dify could not confirm cancellation.') } }
+  if (currentTask) { try { const response = await fetch(`/api/stop?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: currentTask, userId, botId }) }); if (!response.ok) showError('Reply display stopped. Dify could not confirm cancellation.') } catch { showError('Reply display stopped. Dify could not confirm cancellation.') } }
 })
 $('new-chat').addEventListener('click', () => { if (busy) return; history = []; conversationId = ''; persist(); $('error').hidden = true; branding(); $('message').focus() })
 branding()

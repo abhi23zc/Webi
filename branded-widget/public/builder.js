@@ -16,7 +16,7 @@ function update() {
   avatar($('brand-avatar'), config); avatar($('launcher-avatar'), config)
   $('launcher-label').textContent = config.launcher
   $('preview-launcher').setAttribute('aria-label', `${open ? 'Close' : 'Open'} ${config.name}`)
-  frame.contentWindow.postMessage({ type: 'webi-config', config, mode }, location.origin)
+  frame.contentWindow.postMessage({ type: 'webi-config', config, mode, botId: activeBot || 'default' }, location.origin)
   for (const button of $('themes').children) { const active = button.dataset.theme === config.theme; button.setAttribute('aria-pressed', String(active)); button.querySelector('.theme-check').textContent = active ? '✓' : '' }
 }
 function fill() {
@@ -84,4 +84,4 @@ $('download-code').addEventListener('click', () => { const code = snippet(); if 
 fill()
 fetch(`/api/status?bot=${encodeURIComponent(activeBot)}`).then(r => r.json()).then(status => { $('connection-status').textContent = status.configured ? status.mode === 'webapp' ? 'Connected through your published Dify web app. Use Test Dify for a real conversation.' : 'API key configured. Use Test Dify to verify a real conversation.' : 'Set DIFY_API_KEY or DIFY_WEBAPP_CODE in branded-widget/.env, then restart the widget server.' }).catch(() => { $('connection-status').textContent = 'Start the widget server with npm start to connect to Dify.' })
 
-export const studio = { config: () => config, select: (id, branding) => { activeBot = id; $('live-mode').disabled = !id; $('get-code').disabled = !id; $('design-mode').setAttribute('aria-pressed', 'true'); $('live-mode').setAttribute('aria-pressed', 'false'); config = normalize(branding); if (id === 'default') { try { config = normalize(JSON.parse(localStorage.getItem('webi-widget-branding:default') || localStorage.getItem('webi-widget-branding') || 'null') || branding) } catch {} } mode = 'design'; frame.src = `/widget.html?preview=1&bot=${encodeURIComponent(id || 'default')}`; fill(); $('save-state').textContent = id === 'default' ? 'Saved on this browser' : 'Save chatbot to publish changes'; } }
+export const studio = { config: () => config, select: (id, branding) => { activeBot = id; $('live-mode').disabled = !id; $('get-code').disabled = !id; $('design-mode').setAttribute('aria-pressed', 'true'); $('live-mode').setAttribute('aria-pressed', 'false'); config = normalize(branding); if (id === 'default') { try { config = normalize(JSON.parse(localStorage.getItem('webi-widget-branding:default') || localStorage.getItem('webi-widget-branding') || 'null') || branding) } catch {} } mode = 'design'; frame.src = `/widget.html?preview=1&bot=${encodeURIComponent(id || 'default')}&v=20261010-routing`; fill(); $('save-state').textContent = id === 'default' ? 'Saved on this browser' : 'Save chatbot to publish changes'; } }

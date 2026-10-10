@@ -61,6 +61,7 @@ export function createWidgetServer(options = {}) {
         if (!key && !webappCode) return json(res, 503, { error: 'The chatbot is not connected yet. Add DIFY_API_KEY or DIFY_WEBAPP_CODE to the server .env file.' })
         let data
         try { data = await readJson(req) } catch { return json(res, 400, { error: 'Invalid request body.' }) }
+        if (data.botId && data.botId !== botId) return json(res, 409, { error: 'Chatbot routing mismatch. Reload the widget.' })
         if (!uuid.test(data.userId ?? '')) return json(res, 400, { error: 'Invalid visitor ID.' })
         if (path === '/api/chat' && (typeof data.query !== 'string' || !data.query.trim() || data.query.length > 4000 || (data.conversationId && !uuid.test(data.conversationId)))) return json(res, 400, { error: 'Enter a message up to 4,000 characters.' })
         if (path === '/api/stop' && !uuid.test(data.taskId ?? '')) return json(res, 400, { error: 'Invalid task ID.' })
@@ -85,6 +86,7 @@ export function createWidgetServer(options = {}) {
           let upstream = await requestUpstream()
           if (useWebapp && upstream.status === 401) { await upstream.body?.cancel(); headers['X-App-Passport'] = await getPassport(data.userId, controller.signal, bot, true); upstream = await requestUpstream() }
           if (!upstream.ok) { await upstream.body?.cancel(); return json(res, upstream.status, { error: upstream.status === 401 ? 'Dify rejected the API key. Check your server configuration.' : `Dify could not complete the request (${upstream.status}). Check the published Chatflow and its required inputs.` }) }
+          res.setHeader('X-Webi-Bot-ID', botId)
           res.writeHead(200, { 'Content-Type': stop ? 'application/json' : 'text/event-stream', 'Cache-Control': 'no-cache, no-store', 'X-Accel-Buffering': 'no' })
           await pipeline(Readable.fromWeb(upstream.body), res)
         } catch { if (!res.headersSent && !res.destroyed) json(res, 502, { error: 'Unable to reach Dify. Check DIFY_API_URL and published web-app access, then try again.' }); else res.end() }
