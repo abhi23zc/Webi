@@ -1,4 +1,4 @@
-import { studio } from './builder.js?v=20261010-routing'
+import { studio } from './builder.js?v=20261011-context'
 import { normalize, defaults } from './config.js'
 const $ = id => document.getElementById(id)
 let bots = [], selected = 'default'

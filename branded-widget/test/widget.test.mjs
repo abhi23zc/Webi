@@ -83,7 +83,7 @@ test('published web-app mode keeps passports server-side and isolates visitors',
     assert.equal(calls[0].headers['x-app-passport'], `passport-${userId}`)
     assert.equal(calls[2].headers['x-app-passport'], `passport-${conversationId}`)
     assert.equal(calls[0].headers.authorization, undefined)
-    assert.deepEqual(calls[0].body, { query: 'hi', inputs: {}, response_mode: 'streaming', conversation_id: null })
+    assert.deepEqual(calls[0].body, { query: 'hi', inputs: {}, response_mode: 'streaming', conversation_id: null, parent_message_id: null })
     assert.deepEqual(await (await fetch(`${origin}/api/status`)).json(), { configured: true, mode: 'webapp' })
   } finally { await close(server); await close(upstream) }
 })

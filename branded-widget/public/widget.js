@@ -5,9 +5,9 @@ const botId = new URLSearchParams(location.search).get('bot') || 'default'
 const storageKey = `webi-conversation:${botId}`
 const preview = new URLSearchParams(location.search).has('preview')
 let config = normalize(defaults), mode = preview ? 'design' : 'live', busy = false, controller, taskId = '', stopped = false
-let conversationId = '', history = [], userId = crypto.randomUUID()
-try { userId = localStorage.getItem('webi-visitor') || userId; localStorage.setItem('webi-visitor', userId); const saved = JSON.parse(localStorage.getItem(storageKey) || (botId === 'default' ? localStorage.getItem('webi-conversation') : null) || '{}'); if (Array.isArray(saved.messages)) { history = saved.messages.filter(m => ['user', 'assistant'].includes(m.role) && typeof m.text === 'string').slice(-100); conversationId = typeof saved.id === 'string' ? saved.id : '' } } catch {}
-function persist() { try { localStorage.setItem(storageKey, JSON.stringify({ id: conversationId, messages: history.slice(-100) })) } catch {} }
+let conversationId = '', parentMessageId = '', history = [], userId = crypto.randomUUID()
+try { userId = localStorage.getItem('webi-visitor') || userId; localStorage.setItem('webi-visitor', userId); const saved = JSON.parse(localStorage.getItem(storageKey) || (botId === 'default' ? localStorage.getItem('webi-conversation') : null) || '{}'); if (Array.isArray(saved.messages)) { history = saved.messages.filter(m => ['user', 'assistant'].includes(m.role) && typeof m.text === 'string').slice(-100); conversationId = typeof saved.id === 'string' ? saved.id : ''; parentMessageId = typeof saved.parentMessageId === 'string' ? saved.parentMessageId : '' } } catch {}
+function persist() { try { localStorage.setItem(storageKey, JSON.stringify({ id: conversationId, parentMessageId, messages: history.slice(-100) })) } catch {} }
 function message(role, text) {
   const row = document.createElement('div'); row.className = `message-row ${role}`
   const label = document.createElement('div'); label.className = 'message-label'; label.textContent = role === 'user' ? 'You' : config.name
@@ -54,13 +54,15 @@ $('chat-form').addEventListener('submit', async event => {
   history.push(answer); setBusy(true); stopped = false; taskId = ''; controller = new AbortController()
   let ended = false
   try {
-    const response = await fetch(`/api/chat?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, userId, conversationId, botId }), signal: controller.signal })
+    const response = await fetch(`/api/chat?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query, userId, conversationId, parentMessageId, botId }), signal: controller.signal })
     if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not send your message.') }
     if (response.headers.get('X-Webi-Bot-ID') !== botId) throw new Error('Chatbot routing mismatch. Reload the widget and try again.')
     if (!response.headers.get('content-type')?.includes('text/event-stream')) throw new Error('Dify returned an unexpected response.')
     await consumeEvents(response.body, event => {
       if (event.task_id) taskId = event.task_id
       if (event.conversation_id) conversationId = event.conversation_id
+      if (['message', 'agent_message', 'message_end'].includes(event.event)) { const id = event.message_id || event.id; if (typeof id === 'string') parentMessageId = id }
+      if (event.conversation_id || event.message_id) persist()
       if (event.event === 'error') throw new Error(event.message || 'Dify could not generate a reply.')
       if (['message', 'agent_message'].includes(event.event)) answer.text += event.answer || ''
       if (event.event === 'message_replace') answer.text = event.answer || ''
@@ -80,7 +82,7 @@ $('stop').addEventListener('click', async () => {
   stopped = true; controller?.abort()
   if (currentTask) { try { const response = await fetch(`/api/stop?bot=${encodeURIComponent(botId)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: currentTask, userId, botId }) }); if (!response.ok) showError('Reply display stopped. Dify could not confirm cancellation.') } catch { showError('Reply display stopped. Dify could not confirm cancellation.') } }
 })
-$('new-chat').addEventListener('click', () => { if (busy) return; history = []; conversationId = ''; persist(); $('error').hidden = true; branding(); $('message').focus() })
+$('new-chat').addEventListener('click', () => { if (busy) return; history = []; conversationId = ''; parentMessageId = ''; persist(); $('error').hidden = true; branding(); $('message').focus() })
 branding()
 
 function resizeComposer() { const input = $('message'); input.style.height = '44px'; input.style.height = `${Math.min(input.scrollHeight, 120)}px`; $('send').disabled = busy || mode === 'design' || !input.value.trim() }

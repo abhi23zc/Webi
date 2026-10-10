@@ -64,6 +64,7 @@ export function createWidgetServer(options = {}) {
         if (data.botId && data.botId !== botId) return json(res, 409, { error: 'Chatbot routing mismatch. Reload the widget.' })
         if (!uuid.test(data.userId ?? '')) return json(res, 400, { error: 'Invalid visitor ID.' })
         if (path === '/api/chat' && (typeof data.query !== 'string' || !data.query.trim() || data.query.length > 4000 || (data.conversationId && !uuid.test(data.conversationId)))) return json(res, 400, { error: 'Enter a message up to 4,000 characters.' })
+        if (path === '/api/chat' && data.parentMessageId && (!uuid.test(data.parentMessageId) || !data.conversationId)) return json(res, 400, { error: 'Invalid parent message ID.' })
         if (path === '/api/stop' && !uuid.test(data.taskId ?? '')) return json(res, 400, { error: 'Invalid task ID.' })
         // Bound rate-limit memory and key by network address (never trust client forwarded headers).
         const now = Date.now()
@@ -81,6 +82,7 @@ export function createWidgetServer(options = {}) {
           if (useWebapp) { headers['X-App-Code'] = webappCode; headers['X-App-Passport'] = await getPassport(data.userId, controller.signal, bot) }
           else headers.Authorization = `Bearer ${key}`
           const payload = stop ? {} : { query: data.query.trim(), inputs, response_mode: 'streaming', conversation_id: data.conversationId || null }
+          if (useWebapp && !stop) payload.parent_message_id = data.parentMessageId || null
           if (!useWebapp) { payload.user = data.userId; if (!stop) payload.conversation_id ||= '' }
           const requestUpstream = () => fetch(`${base}/chat-messages${stop ? `/${encodeURIComponent(data.taskId)}/stop` : ''}`, { method: 'POST', headers, body: JSON.stringify(payload), signal: controller.signal })
           let upstream = await requestUpstream()
