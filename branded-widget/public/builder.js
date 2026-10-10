@@ -2,12 +2,13 @@ import { themes, defaults, normalize, applyTheme, avatar } from './config.js'
 const $ = id => document.getElementById(id)
 let config = normalize(defaults)
 try { config = normalize(JSON.parse(localStorage.getItem('webi-widget-branding') || 'null') || defaults) } catch {}
+let activeBot = 'default'
 let mode = 'design'
 let open = true
 const frame = $('preview-frame')
 const notice = message => { $('notice').textContent = message }
 function persist() {
-  try { localStorage.setItem('webi-widget-branding', JSON.stringify(config)); $('save-state').textContent = 'Saved on this browser' } catch { $('save-state').textContent = 'Storage unavailable · export to save' }
+  try { localStorage.setItem(`webi-widget-branding:${activeBot}`, JSON.stringify(config)); $('save-state').textContent = activeBot === 'default' ? 'Saved on this browser' : 'Unsaved changes · click Save chatbot' } catch { $('save-state').textContent = 'Storage unavailable · export to save' }
 }
 function update() {
   applyTheme($('preview-canvas'), config)
@@ -70,8 +71,8 @@ function snippet() {
   try { const url = new URL($('embed-origin').value); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error(); origin = url.origin } catch { $('embed-code').value = ''; $('code-notice').textContent = 'Enter a valid widget server origin, such as https://chat.yourbrand.com.'; return '' }
   // Escape HTML-sensitive characters even inside JSON to prevent a script-closing injection.
   const safeJson = JSON.stringify(config, null, 2).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')
-  const src = `${origin}/embed.js`.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-  const code = `<script>\n  window.webiWidgetConfig = ${safeJson};\n</script>\n<script src="${src}" defer></script>`
+  const src = `${origin}/embed.js?bot=${encodeURIComponent(activeBot)}`.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+  const code = activeBot === 'default' ? `<script>\n  window.webiWidgetConfig = ${safeJson};\n</script>\n<script src="${src}" defer></script>` : `<script src="${src}" defer></script>`
   $('embed-code').value = code; $('code-notice').textContent = origin.includes('localhost') ? 'Local testing URL. Replace with your public HTTPS URL before publishing.' : ''
   return code
 }
@@ -81,4 +82,6 @@ $('embed-dialog').querySelector('.close-dialog').addEventListener('click', () =>
 $('copy-code').addEventListener('click', async () => { const code = snippet(); if (!code) return; try { await navigator.clipboard.writeText(code); $('code-notice').textContent = 'Copied. Paste this into your website before </body>.' } catch { $('embed-code').select(); $('code-notice').textContent = 'Select and copy the code manually.' } })
 $('download-code').addEventListener('click', () => { const code = snippet(); if (code) download('webi-widget-embed.html', code, 'text/html') })
 fill()
-fetch('/api/status').then(r => r.json()).then(status => { $('connection-status').textContent = status.configured ? status.mode === 'webapp' ? 'Connected through your published Dify web app. Use Test Dify for a real conversation.' : 'API key configured. Use Test Dify to verify a real conversation.' : 'Set DIFY_API_KEY or DIFY_WEBAPP_CODE in branded-widget/.env, then restart the widget server.' }).catch(() => { $('connection-status').textContent = 'Start the widget server with npm start to connect to Dify.' })
+fetch(`/api/status?bot=${encodeURIComponent(activeBot)}`).then(r => r.json()).then(status => { $('connection-status').textContent = status.configured ? status.mode === 'webapp' ? 'Connected through your published Dify web app. Use Test Dify for a real conversation.' : 'API key configured. Use Test Dify to verify a real conversation.' : 'Set DIFY_API_KEY or DIFY_WEBAPP_CODE in branded-widget/.env, then restart the widget server.' }).catch(() => { $('connection-status').textContent = 'Start the widget server with npm start to connect to Dify.' })
+
+window.webiStudio = { config: () => config, select: (id, branding) => { activeBot = id; $('live-mode').disabled = !id; $('get-code').disabled = !id; $('design-mode').setAttribute('aria-pressed', 'true'); $('live-mode').setAttribute('aria-pressed', 'false'); config = normalize(branding); if (id === 'default') { try { config = normalize(JSON.parse(localStorage.getItem('webi-widget-branding:default') || localStorage.getItem('webi-widget-branding') || 'null') || branding) } catch {} } mode = 'design'; frame.src = `/widget.html?preview=1&bot=${encodeURIComponent(id || 'default')}`; fill(); $('save-state').textContent = id === 'default' ? 'Saved on this browser' : 'Save chatbot to publish changes'; } }

@@ -1,3 +1,4 @@
+import { management } from './management.mjs'
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -22,26 +23,37 @@ export function createWidgetServer(options = {}) {
   const origin = options.origin ?? process.env.PUBLIC_ORIGIN ?? 'http://localhost:3100'
   const inputs = JSON.parse(options.inputs ?? process.env.DIFY_INPUTS_JSON ?? '{}')
   if (!inputs || typeof inputs !== 'object' || Array.isArray(inputs)) throw new Error('DIFY_INPUTS_JSON must be an object.')
+  const manager = management({ file: options.storeFile ?? process.env.BOTS_FILE ?? resolve(dirname(root), 'data/bots.json'), password: options.password ?? process.env.STUDIO_PASSWORD, origin, fallback: { key, webappCode, base, inputs } })
   const windows = new Map()
   const passports = new Map()
-  async function getPassport(userId, signal, refresh = false) {
+  async function getPassport(userId, signal, bot, refresh = false) {
+    const { base, webappCode } = bot
+    const passportId = `${bot.id}:${base}:${webappCode}:${userId}`
     const now = Date.now()
     for (const [id, entry] of passports) if (now > entry.until) passports.delete(id)
-    const saved = passports.get(userId)
+    const saved = passports.get(passportId)
     if (saved && !refresh) return saved.token
     const response = await fetch(`${base}/passport?user_id=${encodeURIComponent(userId)}`, { headers: { 'X-App-Code': webappCode }, signal })
     if (!response.ok) throw new Error('Published web-app access is unavailable.')
     const data = await response.json()
     if (typeof data.access_token !== 'string') throw new Error('Dify did not return a web-app passport.')
     if (passports.size >= 10000) passports.delete(passports.keys().next().value)
-    passports.set(userId, { token: data.access_token, until: now + 5 * 60000 })
+    passports.set(passportId, { token: data.access_token, until: now + 5 * 60000 })
     return data.access_token
   }
   return createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Referrer-Policy', 'no-referrer')
-    const path = new URL(req.url, origin).pathname
+    const url = new URL(req.url, origin)
+    const path = url.pathname
     try {
+      if (await manager.handle(req, res, url)) return
+      const botId = url.searchParams.get('bot') || 'default'
+      const bot = (await manager.bots()).find(b => b.id === botId)
+      if ((path === '/api/bot' || path === '/api/chat' || path === '/api/stop' || path === '/api/status') && !bot) return json(res, 404, { error: 'Chatbot not found.' })
+      const { key, webappCode, base, inputs } = bot || {}
+      const useWebapp = Boolean(webappCode && !key)
+      if (path === '/api/bot' && req.method === 'GET') { res.setHeader('Access-Control-Allow-Origin', '*'); return json(res, 200, { id: bot.id, branding: bot.branding }) }
       if (path === '/api/status' && req.method === 'GET') return json(res, 200, { configured: Boolean(key || webappCode), mode: useWebapp ? 'webapp' : 'service-api' })
       if (path === '/api/chat' || path === '/api/stop') {
         if (req.method !== 'POST') return json(res, 405, { error: 'Use POST.' })
@@ -65,13 +77,13 @@ export function createWidgetServer(options = {}) {
         try {
           const stop = path === '/api/stop'
           const headers = { 'Content-Type': 'application/json' }
-          if (useWebapp) { headers['X-App-Code'] = webappCode; headers['X-App-Passport'] = await getPassport(data.userId, controller.signal) }
+          if (useWebapp) { headers['X-App-Code'] = webappCode; headers['X-App-Passport'] = await getPassport(data.userId, controller.signal, bot) }
           else headers.Authorization = `Bearer ${key}`
           const payload = stop ? {} : { query: data.query.trim(), inputs, response_mode: 'streaming', conversation_id: data.conversationId || null }
           if (!useWebapp) { payload.user = data.userId; if (!stop) payload.conversation_id ||= '' }
           const requestUpstream = () => fetch(`${base}/chat-messages${stop ? `/${encodeURIComponent(data.taskId)}/stop` : ''}`, { method: 'POST', headers, body: JSON.stringify(payload), signal: controller.signal })
           let upstream = await requestUpstream()
-          if (useWebapp && upstream.status === 401) { await upstream.body?.cancel(); headers['X-App-Passport'] = await getPassport(data.userId, controller.signal, true); upstream = await requestUpstream() }
+          if (useWebapp && upstream.status === 401) { await upstream.body?.cancel(); headers['X-App-Passport'] = await getPassport(data.userId, controller.signal, bot, true); upstream = await requestUpstream() }
           if (!upstream.ok) { await upstream.body?.cancel(); return json(res, upstream.status, { error: upstream.status === 401 ? 'Dify rejected the API key. Check your server configuration.' : `Dify could not complete the request (${upstream.status}). Check the published Chatflow and its required inputs.` }) }
           res.writeHead(200, { 'Content-Type': stop ? 'application/json' : 'text/event-stream', 'Cache-Control': 'no-cache, no-store', 'X-Accel-Buffering': 'no' })
           await pipeline(Readable.fromWeb(upstream.body), res)
@@ -80,9 +92,11 @@ export function createWidgetServer(options = {}) {
         return
       }
       if (!['GET', 'HEAD'].includes(req.method)) return json(res, 405, { error: 'Method not allowed.' })
-      const files = new Set(['index.html', 'builder.js', 'builder.css', 'widget.html', 'widget.js', 'widget.css', 'config.js', 'stream.js', 'embed.js', 'demo.html'])
+      const files = new Set(['index.html', 'builder.js', 'builder.css', 'widget.html', 'widget.js', 'widget.css', 'config.js', 'stream.js', 'embed.js', 'demo.html', 'manage.js', 'login.html'])
       const name = path === '/' ? 'index.html' : path.slice(1)
       if (!files.has(name)) return json(res, 404, { error: 'Not found.' })
+      if (name === 'index.html' && !manager.auth(req)) { res.writeHead(302, { Location: '/login.html' }); return res.end() }
+      if (name === 'index.html' || name === 'login.html') res.setHeader('X-Frame-Options', 'DENY')
       const file = await readFile(resolve(root, name))
       const ext = name.slice(name.lastIndexOf('.'))
       // Public modules are imported by the launcher on a different website origin.

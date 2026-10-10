@@ -51,3 +51,27 @@ npm test
 ```
 
 Tests use a local simulated Dify HTTP server to verify the API contract, streaming, errors, and secret handling. They do not consume model credits. A live Dify conversation requires your local API key and published Chatflow and must be verified separately.
+
+
+## Multiple chatbots and Studio login
+
+Set `STUDIO_PASSWORD` to a long unique password in `.env`, then rebuild with
+`docker compose up -d --build`. Studio requires sign-in; public widgets do not.
+The existing `default` chatbot still uses the original `.env` connection and
+existing Dineezy embeds continue to work. Do not remove those settings.
+
+Sign in, click **Add chatbot**, choose a unique ID, supply its Dify connection,
+customize its branding, and click **Save chatbot**. Select **Test Dify** to send
+a real message. Use **Get embed code** for each bot. API mode endpoints end in
+`/v1`; published Web App endpoints end in `/api`, and the code is only the text
+after `/chat/` in the published URL. Saved API keys are never returned to the
+browser. A blank key on an existing API bot retains its saved key.
+
+Named Docker volume `widget_data` stores `bots.json`, including credentials.
+Protect and back up this volume; do not run `docker compose down -v`.
+For non-Docker deployments omit `BOTS_FILE` to use `data/bots.json`, or set it
+to an absolute writable path. Sessions expire after eight hours and reset on
+server restart. Changing STUDIO_PASSWORD requires a restart.
+New bots use `embed.js?bot=YOUR_ID` and `widget.html?bot=YOUR_ID`.
+Each bot has separate browser conversation storage. Branding edits are local
+until **Save chatbot**; exported snippets can override saved branding.

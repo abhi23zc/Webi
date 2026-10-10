@@ -9,6 +9,8 @@ services:
       PORT: '3100'
     ports:
       - '127.0.0.1:3100:3100'
+    volumes:
+      - widget_data:/app/data
     networks:
       - dify
     healthcheck:
@@ -21,3 +23,6 @@ networks:
   dify:
     external: true
     name: ${DIFY_DOCKER_NETWORK:-docker_default}
+
+volumes:
+  widget_data:
